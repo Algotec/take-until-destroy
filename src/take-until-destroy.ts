@@ -1,14 +1,14 @@
-import { Observable, Subject } from 'rxjs'
-import { takeUntil } from 'rxjs/operators/takeUntil'
+import {takeUntil} from "rxjs/operators/takeUntil";
+import {Subject} from "rxjs/Subject";
+import {Observable} from "rxjs/Observable";
 
 import { ErrorMessages } from './error-messages'
 
 /**
- * A Map where the component instance is stored as the key
- * and the destroy$ subject as the value
- * @type {WeakMap<Object, Subject>}
+ * A Map where the component instance prototype is stored as the key.
+ * @type {WeakMap<Object, boolean>}
  */
-const instanceDestroy$Map = new WeakMap()
+const instanceDestroy$Map = new WeakMap<Object, boolean>();
 
 /**
  * An RxJs operator which takes an Angular class instance as a parameter. When the component is destroyed, the stream will be
@@ -45,28 +45,27 @@ const instanceDestroy$Map = new WeakMap()
  * @returns {Observable<T>}
  */
 export const takeUntilDestroy = (target: Object) => <T>(stream: Observable<T>) => {
-  const targetPrototype = Object.getPrototypeOf(target)
-  const originalDestroy = targetPrototype.ngOnDestroy
+  const targetPrototype = Object.getPrototypeOf(target);
+	const originalDestroy = targetPrototype.ngOnDestroy;
 
-  if (!(originalDestroy && typeof originalDestroy === 'function')) {
-    throw new Error(ErrorMessages.NO_NGONDESTROY)
-  }
+	if (!(originalDestroy && typeof originalDestroy === 'function')) {
+		throw new Error("takeUntilDestroy requires declaration of ngOnDestroy");
+	}
 
-  if (instanceDestroy$Map.has(target)) {
-    const destroy$FoundInMap = instanceDestroy$Map.get(target)
-    return stream.pipe(takeUntil(destroy$FoundInMap))
-  }
+	target.newDestroy$ = target.newDestroy$ || new Subject<null>();
 
-  const newDestroy$ = new Subject<null>()
+	if (!instanceDestroy$Map.has(targetPrototype)) {
+		instanceDestroy$Map.set(targetPrototype, true);
 
-  instanceDestroy$Map.set(target, newDestroy$)
+		targetPrototype.ngOnDestroy = function () {
+			originalDestroy.apply(this, arguments);
 
-  targetPrototype.ngOnDestroy = function () {
-    originalDestroy.apply(this, arguments)
+			if (this.newDestroy$) {
+				this.newDestroy$.next();
+				this.newDestroy$.complete();
+			}
+		};
+	}
 
-    newDestroy$.next()
-    newDestroy$.complete()
-  }
-
-  return stream.pipe(takeUntil(newDestroy$))
-}
+	return stream.pipe(takeUntil(target.newDestroy$));
+};
